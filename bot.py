@@ -44,37 +44,49 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # 🔹 PARSE (+/- TUTAR)
 def parse_message(text):
+    """
+    Mesaj formatı: code (+/-)tutar kişi
+    Örn:
+        sky03 +300 mehmet
+        abc -150 ali
+    """
+    text = text.strip()
     parts = text.split()
+
     if len(parts) < 2:
         return None
 
     code = parts[0]
 
-    # Tutar ve işaret
-    match = re.match(r'([+-])(\d+)', parts[1])
+    # + veya - işaretli sayı
+    match = re.search(r'([+-]\d+)', text)
     if not match:
         return None
 
-    sign, amount = match.groups()
-    amount = int(amount)
-    if sign == "-":
-        amount = -amount  # düşülecek
+    amount_str = match.group(1)
+    amount = int(amount_str)
 
-    # Kişi
-    person = " ".join(parts[2:]) if len(parts) > 2 else ""
+    # kişi
+    idx = text.find(amount_str) + len(amount_str)
+    person = text[idx:].strip()
 
     return code, amount, person
 
 # 🔹 MESAJ
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # 🔹 Debug
-    print("Mesaj geldi:", update.message.text)
+    if not update.message or not update.message.text:
+        return
 
     msg = update.message.text
+    print("Mesaj geldi:", msg)  # 🔹 Debug log
+
     result = parse_message(msg)
+    print("Parse sonucu:", result)  # 🔹 Debug log
 
     if not result:
-        print("Mesaj parse edilemedi")
+        await update.message.reply_text(
+            "⚠️ Mesaj formatı hatalı. Örn: sky03 +300 mehmet"
+        )
         return
 
     code, amount, person = result
@@ -106,7 +118,9 @@ async def rapor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, code, amount, person FROM records WHERE date=?", (date,))
+    cursor.execute(
+        "SELECT id, code, amount, person FROM records WHERE date=?", (date,)
+    )
     rows = cursor.fetchall()
     conn.close()
 
@@ -190,7 +204,7 @@ def main():
     app.add_handler(CommandHandler("bakiye", bakiye))
 
     # 🔹 Tüm text mesajlarını yakala
-    app.add_handler(MessageHandler(filters.TEXT, handle_message))
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
 
     app.run_polling()
 
