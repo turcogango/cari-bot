@@ -42,37 +42,31 @@ def get_db():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Hazırım 👌")
 
-# 🔹 PARSE
+# 🔹 PARSE (ESNEK)
 def parse_message(text):
-    lower = text.lower()
-    parts = lower.split()
+    text_lower = text.lower()
 
-    if len(parts) < 2:
-        return None
-
-    code = parts[0]
-
-    if "eklenecek" in lower:
+    # İşlem türü
+    if "eklenecek" in text_lower:
         action = "add"
-    elif "düşülecek" in lower:
+    elif "düşülecek" in text_lower:
         action = "remove"
     else:
         return None
 
-    numbers = re.findall(r"\d+", lower)
-    if not numbers:
+    # Code: ilk kelime
+    parts = text.split()
+    code = parts[0]
+
+    # Amount: sayıyı yakala (\d+)
+    match = re.search(r'\b(\d+)\b', text)
+    if not match:
         return None
+    amount = int(match.group(1))
 
-    amount = int(numbers[0])
-
-    # kişi ismini orijinal textten al
-    original_parts = text.split()
-    try:
-        amount_index = next(i for i, p in enumerate(original_parts) if p.isdigit())
-    except:
-        amount_index = 2
-
-    person = " ".join(original_parts[amount_index + 1:]) if len(original_parts) > amount_index + 1 else ""
+    # Person: amount’tan sonraki kelimeler
+    idx = text.find(match.group(1)) + len(match.group(1))
+    person = text[idx:].strip()
 
     return code, action, amount, person
 
@@ -115,7 +109,6 @@ async def rapor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     conn = get_db()
     cursor = conn.cursor()
-
     cursor.execute("SELECT id, code, amount, person FROM records WHERE date=?", (date,))
     rows = cursor.fetchall()
     conn.close()
@@ -126,11 +119,9 @@ async def rapor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = f"📅 {date}:\n\n"
     toplam = 0
-
     for id_, code, amount, person in rows:
         text += f"🔹 {id_} | {code} | {amount} TL\n👤 {person}\n\n"
         toplam += amount
-
     text += f"💰 Toplam: {toplam} TL"
 
     await update.message.reply_text(text)
@@ -153,10 +144,8 @@ async def sil(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     conn = get_db()
     cursor = conn.cursor()
-
     cursor.execute("SELECT * FROM records WHERE id=?", (record_id,))
     row = cursor.fetchone()
-
     if not row:
         conn.close()
         await update.message.reply_text("Kayıt bulunamadı.")
@@ -172,7 +161,6 @@ async def sil(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def bakiye(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = get_db()
     cursor = conn.cursor()
-
     cursor.execute("SELECT code, SUM(amount) FROM records GROUP BY code")
     rows = cursor.fetchall()
     conn.close()
@@ -182,7 +170,6 @@ async def bakiye(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     text = "📊 Bakiyeler:\n\n"
-
     for code, total in rows:
         text += f"{code} → {total} TL\n"
 
