@@ -42,31 +42,28 @@ def get_db():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Hazırım 👌")
 
-# 🔹 PARSE (ESNEK)
+# 🔹 PARSE (+/- TUTAR)
 def parse_message(text):
-    text_lower = text.lower()
-    action = None
-    if "eklenecek" in text_lower:
-        action = "add"
-    elif "düşülecek" in text_lower:
-        action = "remove"
-    if not action:
+    parts = text.split()
+    if len(parts) < 2:
         return None
 
-    # Kod: mesajın ilk kelimesi
-    code = text.split()[0]
+    code = parts[0]
 
-    # Tutar: ilk sayıyı yakala
-    match = re.search(r'(\d+)', text)
+    # Tutar ve işaret
+    match = re.match(r'([+-])(\d+)', parts[1])
     if not match:
         return None
-    amount = int(match.group(1))
 
-    # Kişi: sayının geri kalan kısmı
-    idx = text.find(match.group(1)) + len(match.group(1))
-    person = text[idx:].strip()
+    sign, amount = match.groups()
+    amount = int(amount)
+    if sign == "-":
+        amount = -amount  # düşülecek
 
-    return code, action, amount, person
+    # Kişi
+    person = " ".join(parts[2:]) if len(parts) > 2 else ""
+
+    return code, amount, person
 
 # 🔹 MESAJ
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -80,22 +77,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print("Mesaj parse edilemedi")
         return
 
-    code, action, amount, person = result
-    final_amount = amount if action == "add" else -amount
+    code, amount, person = result
     today = datetime.now().strftime("%Y-%m-%d")
 
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute(
         "INSERT INTO records (code, amount, person, date) VALUES (?, ?, ?, ?)",
-        (code, final_amount, person, today)
+        (code, amount, person, today)
     )
     conn.commit()
     last_id = cursor.lastrowid
     conn.close()
 
     await update.message.reply_text(
-        f"✅ Kaydedildi\nKod: {code}\nTutar: {final_amount} TL\nKişi: {person}\nNo: {last_id}"
+        f"✅ Kaydedildi\nKod: {code}\nTutar: {amount} TL\nKişi: {person}\nNo: {last_id}"
     )
 
 # 🔹 RAPOR
@@ -193,11 +189,10 @@ def main():
     app.add_handler(CommandHandler("sil", sil))
     app.add_handler(CommandHandler("bakiye", bakiye))
 
-    # 🔹 tüm text mesajlarını yakala
+    # 🔹 Tüm text mesajlarını yakala
     app.add_handler(MessageHandler(filters.TEXT, handle_message))
 
     app.run_polling()
 
 if __name__ == "__main__":
     main()
-    
