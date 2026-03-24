@@ -7,8 +7,6 @@ from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     ContextTypes,
-    MessageHandler,
-    filters,
 )
 
 # 🔑 ENV
@@ -70,10 +68,10 @@ async def ekle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✅ Kaydedildi\nKod: {code}\nTutar: {amount} TL\nKişi: {person}\nNo: {last_id}"
     )
 
-# 🔹 DÜŞ
+# 🔹 DUS
 async def dus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 2:
-        await update.message.reply_text("Kullanım: /düş code tutar [person]")
+        await update.message.reply_text("Kullanım: /dus code tutar [person]")
         return
 
     code = context.args[0]
@@ -186,7 +184,7 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("ekle", ekle))
-    app.add_handler(CommandHandler("düş", dus))
+    app.add_handler(CommandHandler("dus", dus))
     app.add_handler(CommandHandler("rapor", rapor))
     app.add_handler(CommandHandler("sil", sil))
     app.add_handler(CommandHandler("bakiye", bakiye))
