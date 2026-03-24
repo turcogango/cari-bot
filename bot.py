@@ -45,26 +45,24 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 🔹 PARSE (ESNEK)
 def parse_message(text):
     text_lower = text.lower()
-
-    # İşlem türü
+    action = None
     if "eklenecek" in text_lower:
         action = "add"
     elif "düşülecek" in text_lower:
         action = "remove"
-    else:
+    if not action:
         return None
 
-    # Code: ilk kelime
-    parts = text.split()
-    code = parts[0]
+    # Kod: mesajın ilk kelimesi
+    code = text.split()[0]
 
-    # Amount: sayıyı yakala (\d+)
-    match = re.search(r'\b(\d+)\b', text)
+    # Tutar: ilk sayıyı yakala
+    match = re.search(r'(\d+)', text)
     if not match:
         return None
     amount = int(match.group(1))
 
-    # Person: amount’tan sonraki kelimeler
+    # Kişi: sayının geri kalan kısmı
     idx = text.find(match.group(1)) + len(match.group(1))
     person = text[idx:].strip()
 
@@ -72,10 +70,14 @@ def parse_message(text):
 
 # 🔹 MESAJ
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # 🔹 Debug
+    print("Mesaj geldi:", update.message.text)
+
     msg = update.message.text
     result = parse_message(msg)
 
     if not result:
+        print("Mesaj parse edilemedi")
         return
 
     code, action, amount, person = result
@@ -84,7 +86,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     conn = get_db()
     cursor = conn.cursor()
-
     cursor.execute(
         "INSERT INTO records (code, amount, person, date) VALUES (?, ?, ?, ?)",
         (code, final_amount, person, today)
@@ -191,7 +192,9 @@ def main():
     app.add_handler(CommandHandler("rapor", rapor))
     app.add_handler(CommandHandler("sil", sil))
     app.add_handler(CommandHandler("bakiye", bakiye))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    # 🔹 tüm text mesajlarını yakala
+    app.add_handler(MessageHandler(filters.TEXT, handle_message))
 
     app.run_polling()
 
