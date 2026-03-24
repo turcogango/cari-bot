@@ -19,6 +19,7 @@ def init_db():
         code TEXT,
         amount INTEGER,
         person TEXT,
+        site TEXT,
         date TEXT
     )
     """)
@@ -34,124 +35,121 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # 🔹 EKLE
 async def ekle(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) < 2:
-        await update.message.reply_text("Kullanım: /ekle code tutar [person]")
+    if len(context.args) < 4:
+        await update.message.reply_text("Kullanım: /ekle <taşeron> <tutar> <üye adı soyadı> <site>")
         return
     code = context.args[0]
     try:
         amount = int(context.args[1])
-    except:
+    except ValueError:
         await update.message.reply_text("Tutar sayısal olmalı!")
         return
-    person = " ".join(context.args[2:]) if len(context.args) > 2 else ""
+    person = " ".join(context.args[2:-1])
+    site = context.args[-1]
     today = datetime.now().strftime("%Y-%m-%d")
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO records (code, amount, person, date) VALUES (?, ?, ?, ?)",
-        (code, amount, person, today)
+        "INSERT INTO records (code, amount, person, site, date) VALUES (?, ?, ?, ?, ?)",
+        (code, amount, person, site, today)
     )
     conn.commit()
-    last_id = cursor.lastrowid
     cursor.execute("SELECT COUNT(*) FROM records WHERE code=?", (code,))
     count = cursor.fetchone()[0]
     conn.close()
     await update.message.reply_text(
-        f"✅ Başarılı\nTaşeron: {code}\nTutar: {amount} TL\nüye: {person}\nişlem sayısı: {count}"
+        f"✅ Başarılı\nTaşeron: {code}\nTutar: {amount} TL\nÜye: {person}\nSite: {site}\nİşlem sayısı: {count}"
     )
 
 # 🔹 DUS
 async def dus(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) < 2:
-        await update.message.reply_text("Kullanım: /dus code tutar [person]")
+    if len(context.args) < 4:
+        await update.message.reply_text("Kullanım: /dus <taşeron> <tutar> <üye adı soyadı> <site>")
         return
     code = context.args[0]
     try:
         amount = -abs(int(context.args[1]))
-    except:
+    except ValueError:
         await update.message.reply_text("Tutar sayısal olmalı!")
         return
-    person = " ".join(context.args[2:]) if len(context.args) > 2 else ""
+    person = " ".join(context.args[2:-1])
+    site = context.args[-1]
     today = datetime.now().strftime("%Y-%m-%d")
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO records (code, amount, person, date) VALUES (?, ?, ?, ?)",
-        (code, amount, person, today)
+        "INSERT INTO records (code, amount, person, site, date) VALUES (?, ?, ?, ?, ?)",
+        (code, amount, person, site, today)
     )
     conn.commit()
-    last_id = cursor.lastrowid
     cursor.execute("SELECT COUNT(*) FROM records WHERE code=?", (code,))
     count = cursor.fetchone()[0]
     conn.close()
     await update.message.reply_text(
-        f"✅ Başarılı\nTaşeron: {code}\nTutar: {abs(amount)} TL\nüye: {person}\nişlem sayısı: {count}"
+        f"✅ Başarılı\nTaşeron: {code}\nTutar: {abs(amount)} TL\nÜye: {person}\nSite: {site}\nİşlem sayısı: {count}"
     )
 
-# 🔹 RAPOR (numaralı + detaylı)
+# 🔹 RAPOR
 async def rapor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     date = context.args[0] if context.args else datetime.now().strftime("%Y-%m-%d")
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, code, amount, person FROM records WHERE date=? ORDER BY id", (date,))
+    cursor.execute("SELECT id, code, amount, person, site FROM records WHERE date=? ORDER BY id", (date,))
     rows = cursor.fetchall()
     conn.close()
     if not rows:
         await update.message.reply_text("Kayıt yok.")
         return
-
     data = {}
-    for id_, code, amount, person in rows:
+    for id_, code, amount, person, site in rows:
         if code not in data:
             data[code] = {"eklenecek": [], "dusulecek": []}
         if amount >= 0:
-            data[code]["eklenecek"].append((id_, person, amount))
+            data[code]["eklenecek"].append((id_, person, site, amount))
         else:
-            data[code]["dusulecek"].append((id_, person, abs(amount)))
-
+            data[code]["dusulecek"].append((id_, person, site, abs(amount)))
     text = f"📅 {date} - Taşeron Bazlı Detaylı Rapor\n\n"
     for code, vals in data.items():
         text += f"Taşeron: {code}\n"
-        # Eklenecek
         if vals["eklenecek"]:
-            total_add = sum(a for _, _, a in vals["eklenecek"])
+            total_add = sum(a for _, _, _, a in vals["eklenecek"])
             text += f"Eklenecek: {total_add} TL\n"
-            for id_, person, amt in vals["eklenecek"]:
-                text += f"  {id_}. {person} {amt} TL\n"
-        # Düşülecek
+            for id_, person, site, amt in vals["eklenecek"]:
+                text += f"  {id_}. {person} ({site}) {amt} TL\n"
         if vals["dusulecek"]:
-            total_sub = sum(a for _, _, a in vals["dusulecek"])
+            total_sub = sum(a for _, _, _, a in vals["dusulecek"])
             text += f"Düşülecek: {total_sub} TL\n"
-            for id_, person, amt in vals["dusulecek"]:
-                text += f"  {id_}. {person} {amt} TL\n"
+            for id_, person, site, amt in vals["dusulecek"]:
+                text += f"  {id_}. {person} ({site}) {amt} TL\n"
         text += "\n"
     await update.message.reply_text(text)
 
-# 🔹 DETAY (taşeron bazlı ekleme/düşme toplam)
+# 🔹 DETAY
 async def detay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     date = context.args[0] if context.args else datetime.now().strftime("%Y-%m-%d")
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT code, amount FROM records WHERE date=?", (date,))
+    cursor.execute("SELECT code, amount, site FROM records WHERE date=?", (date,))
     rows = cursor.fetchall()
     conn.close()
     if not rows:
         await update.message.reply_text("Kayıt yok.")
         return
     data = {}
-    for code, amount in rows:
+    for code, amount, site in rows:
         if code not in data:
-            data[code] = {"eklenecek": 0, "dusulecek": 0}
+            data[code] = {"eklenecek": 0, "dusulecek": 0, "sites": set()}
         if amount >= 0:
             data[code]["eklenecek"] += amount
         else:
             data[code]["dusulecek"] += abs(amount)
+        data[code]["sites"].add(site)
     text = f"📅 {date} - Detaylar:\n\n"
     for code, vals in data.items():
-        text += f"Taşeron: {code}\nEklenecek: {vals['eklenecek']}\nDüşülecek: {vals['dusulecek']}\n\n"
+        text += f"Taşeron: {code}\nEklenecek: {vals['eklenecek']}\nDüşülecek: {vals['dusulecek']}\nSite: {', '.join(vals['sites'])}\n\n"
     await update.message.reply_text(text)
 
-# 🔹 SİL (işlem numarasına göre)
+# 🔹 SİL
 async def sil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("Yetkin yok.")
@@ -161,7 +159,7 @@ async def sil(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     try:
         record_id = int(context.args[0])
-    except:
+    except ValueError:
         await update.message.reply_text("Geçersiz numara.")
         return
     conn = get_db()
@@ -197,8 +195,8 @@ async def alfi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "🤖 Mevcut Komutlar:\n\n"
         "/start - Botu başlatır\n"
-        "/ekle code tutar [üye] - Taşerona tutar ekler\n"
-        "/dus code tutar [üye] - Taşerondan tutar düşer\n"
+        "/ekle <taşeron> <tutar> <üye adı soyadı> <site> - Taşerona tutar ekler\n"
+        "/dus <taşeron> <tutar> <üye adı soyadı> <site> - Taşerondan tutar düşer\n"
         "/rapor [yyyy-mm-dd] - Taşeron bazlı tüm işlemler\n"
         "/detay [yyyy-mm-dd] - Taşeron bazlı ekleme/düşme toplam\n"
         "/bakiye - Tüm taşeronların toplam bakiyesi\n"
