@@ -37,17 +37,14 @@ async def ekle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 2:
         await update.message.reply_text("Kullanım: /ekle code tutar [person]")
         return
-
     code = context.args[0]
     try:
         amount = int(context.args[1])
     except:
         await update.message.reply_text("Tutar sayısal olmalı!")
         return
-
     person = " ".join(context.args[2:]) if len(context.args) > 2 else ""
     today = datetime.now().strftime("%Y-%m-%d")
-
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute(
@@ -56,12 +53,9 @@ async def ekle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     conn.commit()
     last_id = cursor.lastrowid
-
-    # işlem sayısı
     cursor.execute("SELECT COUNT(*) FROM records WHERE code=?", (code,))
     count = cursor.fetchone()[0]
     conn.close()
-
     await update.message.reply_text(
         f"✅ Başarılı\nTaşeron: {code}\nTutar: {amount} TL\nüye: {person}\nişlem sayısı: {count}"
     )
@@ -71,18 +65,14 @@ async def dus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 2:
         await update.message.reply_text("Kullanım: /dus code tutar [person]")
         return
-
     code = context.args[0]
     try:
-        amount = int(context.args[1])
-        amount = -abs(amount)
+        amount = -abs(int(context.args[1]))
     except:
         await update.message.reply_text("Tutar sayısal olmalı!")
         return
-
     person = " ".join(context.args[2:]) if len(context.args) > 2 else ""
     today = datetime.now().strftime("%Y-%m-%d")
-
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute(
@@ -91,36 +81,53 @@ async def dus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     conn.commit()
     last_id = cursor.lastrowid
-
-    # işlem sayısı
     cursor.execute("SELECT COUNT(*) FROM records WHERE code=?", (code,))
     count = cursor.fetchone()[0]
     conn.close()
-
     await update.message.reply_text(
         f"✅ Başarılı\nTaşeron: {code}\nTutar: {abs(amount)} TL\nüye: {person}\nişlem sayısı: {count}"
     )
 
-# 🔹 RAPOR (taşeron bazlı)
+# 🔹 RAPOR (numaralı + detaylı)
 async def rapor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     date = context.args[0] if context.args else datetime.now().strftime("%Y-%m-%d")
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT code, SUM(amount) FROM records WHERE date=? GROUP BY code", (date,))
+    cursor.execute("SELECT id, code, amount, person FROM records WHERE date=? ORDER BY id", (date,))
     rows = cursor.fetchall()
     conn.close()
-
     if not rows:
         await update.message.reply_text("Kayıt yok.")
         return
 
-    text = f"📅 {date} - Taşeron Bazlı Toplam:\n\n"
-    for code, total in rows:
-        text += f"Taşeron: {code} → Toplam: {total} TL\n"
+    data = {}
+    for id_, code, amount, person in rows:
+        if code not in data:
+            data[code] = {"eklenecek": [], "dusulecek": []}
+        if amount >= 0:
+            data[code]["eklenecek"].append((id_, person, amount))
+        else:
+            data[code]["dusulecek"].append((id_, person, abs(amount)))
 
+    text = f"📅 {date} - Taşeron Bazlı Detaylı Rapor\n\n"
+    for code, vals in data.items():
+        text += f"Taşeron: {code}\n"
+        # Eklenecek
+        if vals["eklenecek"]:
+            total_add = sum(a for _, _, a in vals["eklenecek"])
+            text += f"Eklenecek: {total_add} TL\n"
+            for id_, person, amt in vals["eklenecek"]:
+                text += f"  {id_}. {person} {amt} TL\n"
+        # Düşülecek
+        if vals["dusulecek"]:
+            total_sub = sum(a for _, _, a in vals["dusulecek"])
+            text += f"Düşülecek: {total_sub} TL\n"
+            for id_, person, amt in vals["dusulecek"]:
+                text += f"  {id_}. {person} {amt} TL\n"
+        text += "\n"
     await update.message.reply_text(text)
 
-# 🔹 DETAY (taşeron bazlı eklenen/düşülen)
+# 🔹 DETAY (taşeron bazlı ekleme/düşme toplam)
 async def detay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     date = context.args[0] if context.args else datetime.now().strftime("%Y-%m-%d")
     conn = get_db()
@@ -128,11 +135,9 @@ async def detay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cursor.execute("SELECT code, amount FROM records WHERE date=?", (date,))
     rows = cursor.fetchall()
     conn.close()
-
     if not rows:
         await update.message.reply_text("Kayıt yok.")
         return
-
     data = {}
     for code, amount in rows:
         if code not in data:
@@ -141,20 +146,18 @@ async def detay(update: Update, context: ContextTypes.DEFAULT_TYPE):
             data[code]["eklenecek"] += amount
         else:
             data[code]["dusulecek"] += abs(amount)
-
     text = f"📅 {date} - Detaylar:\n\n"
     for code, vals in data.items():
         text += f"Taşeron: {code}\nEklenecek: {vals['eklenecek']}\nDüşülecek: {vals['dusulecek']}\n\n"
-
     await update.message.reply_text(text)
 
-# 🔹 SİL
+# 🔹 SİL (işlem numarasına göre)
 async def sil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("Yetkin yok.")
         return
     if not context.args:
-        await update.message.reply_text("Kullanım: /sil 5")
+        await update.message.reply_text("Kullanım: /sil işlem_numarası")
         return
     try:
         record_id = int(context.args[0])
@@ -172,7 +175,7 @@ async def sil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cursor.execute("DELETE FROM records WHERE id=?", (record_id,))
     conn.commit()
     conn.close()
-    await update.message.reply_text(f"🗑️ {record_id} numaralı kayıt silindi")
+    await update.message.reply_text(f"🗑️ {record_id} numaralı işlem silindi")
 
 # 🔹 BAKİYE
 async def bakiye(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -189,17 +192,17 @@ async def bakiye(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += f"{code} → {total} TL\n"
     await update.message.reply_text(text)
 
-# 🔹 ALFI (komut listesi)
+# 🔹 ALFI
 async def alfi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "🤖 Mevcut Komutlar:\n\n"
         "/start - Botu başlatır\n"
         "/ekle code tutar [üye] - Taşerona tutar ekler\n"
         "/dus code tutar [üye] - Taşerondan tutar düşer\n"
-        "/rapor [yyyy-mm-dd] - Taşeron bazlı toplam rapor\n"
-        "/detay [yyyy-mm-dd] - Taşeron bazlı ekleme/düşme detay\n"
+        "/rapor [yyyy-mm-dd] - Taşeron bazlı tüm işlemler\n"
+        "/detay [yyyy-mm-dd] - Taşeron bazlı ekleme/düşme toplam\n"
         "/bakiye - Tüm taşeronların toplam bakiyesi\n"
-        "/sil id - Kaydı sil (admin)\n"
+        "/sil işlem_numarası - Kaydı sil (admin)\n"
         "/alfi - Komutları gösterir"
     )
     await update.message.reply_text(text)
@@ -209,11 +212,9 @@ def main():
     if not TOKEN:
         print("❌ BOT_TOKEN tanımlı değil!")
         return
-
     print("🤖 Bot başlatılıyor...")
     init_db()
     app = ApplicationBuilder().token(TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("ekle", ekle))
     app.add_handler(CommandHandler("dus", dus))
@@ -222,7 +223,6 @@ def main():
     app.add_handler(CommandHandler("sil", sil))
     app.add_handler(CommandHandler("bakiye", bakiye))
     app.add_handler(CommandHandler("alfi", alfi))
-
     app.run_polling()
 
 if __name__ == "__main__":
