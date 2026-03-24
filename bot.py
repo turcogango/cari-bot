@@ -1,21 +1,19 @@
 import os
 import sqlite3
-import re
 from datetime import datetime
 
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
     MessageHandler,
     filters,
-    ContextTypes,
-    CommandHandler,
 )
 
 # 🔑 ENV
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
-
 DB_NAME = "cari.db"
 
 # 🔹 DB oluştur
@@ -42,54 +40,20 @@ def get_db():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Hazırım 👌")
 
-# 🔹 PARSE (+/- TUTAR)
-def parse_message(text):
-    """
-    Mesaj formatı: code (+/-)tutar kişi
-    Örn:
-        sky03 +300 mehmet
-        abc -150 ali
-    """
-    text = text.strip()
-    parts = text.split()
-
-    if len(parts) < 2:
-        return None
-
-    code = parts[0]
-
-    # + veya - işaretli sayı
-    match = re.search(r'([+-]\d+)', text)
-    if not match:
-        return None
-
-    amount_str = match.group(1)
-    amount = int(amount_str)
-
-    # kişi
-    idx = text.find(amount_str) + len(amount_str)
-    person = text[idx:].strip()
-
-    return code, amount, person
-
-# 🔹 MESAJ
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text:
+# 🔹 EKLE
+async def ekle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) < 2:
+        await update.message.reply_text("Kullanım: /ekle code tutar [person]")
         return
 
-    msg = update.message.text
-    print("Mesaj geldi:", msg)  # 🔹 Debug log
-
-    result = parse_message(msg)
-    print("Parse sonucu:", result)  # 🔹 Debug log
-
-    if not result:
-        await update.message.reply_text(
-            "⚠️ Mesaj formatı hatalı. Örn: sky03 +300 mehmet"
-        )
+    code = context.args[0]
+    try:
+        amount = int(context.args[1])
+    except:
+        await update.message.reply_text("Tutar sayısal olmalı!")
         return
 
-    code, amount, person = result
+    person = " ".join(context.args[2:]) if len(context.args) > 2 else ""
     today = datetime.now().strftime("%Y-%m-%d")
 
     conn = get_db()
@@ -106,21 +70,44 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✅ Kaydedildi\nKod: {code}\nTutar: {amount} TL\nKişi: {person}\nNo: {last_id}"
     )
 
-# 🔹 RAPOR
-async def rapor(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    date = context.args[0] if context.args else datetime.now().strftime("%Y-%m-%d")
-
-    try:
-        datetime.strptime(date, "%Y-%m-%d")
-    except:
-        await update.message.reply_text("Tarih formatı: YYYY-MM-DD")
+# 🔹 DÜŞ
+async def dus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) < 2:
+        await update.message.reply_text("Kullanım: /düş code tutar [person]")
         return
+
+    code = context.args[0]
+    try:
+        amount = int(context.args[1])
+        amount = -abs(amount)  # negatif kaydet
+    except:
+        await update.message.reply_text("Tutar sayısal olmalı!")
+        return
+
+    person = " ".join(context.args[2:]) if len(context.args) > 2 else ""
+    today = datetime.now().strftime("%Y-%m-%d")
 
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT id, code, amount, person FROM records WHERE date=?", (date,)
+        "INSERT INTO records (code, amount, person, date) VALUES (?, ?, ?, ?)",
+        (code, amount, person, today)
     )
+    conn.commit()
+    last_id = cursor.lastrowid
+    conn.close()
+
+    await update.message.reply_text(
+        f"🛑 Kayıt düşüldü\nKod: {code}\nTutar: {amount} TL\nKişi: {person}\nNo: {last_id}"
+    )
+
+# 🔹 RAPOR
+async def rapor(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    date = context.args[0] if context.args else datetime.now().strftime("%Y-%m-%d")
+
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, code, amount, person FROM records WHERE date=?", (date,))
     rows = cursor.fetchall()
     conn.close()
 
@@ -186,25 +173,23 @@ async def bakiye(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(text)
 
-# 🔥 MAIN
+# 🔹 MAIN
 def main():
     if not TOKEN:
         print("❌ BOT_TOKEN tanımlı değil!")
         return
 
     print("🤖 Bot başlatılıyor...")
-
     init_db()
 
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("ekle", ekle))
+    app.add_handler(CommandHandler("düş", dus))
     app.add_handler(CommandHandler("rapor", rapor))
     app.add_handler(CommandHandler("sil", sil))
     app.add_handler(CommandHandler("bakiye", bakiye))
-
-    # 🔹 Tüm text mesajlarını yakala
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
 
     app.run_polling()
 
