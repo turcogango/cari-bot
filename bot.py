@@ -14,6 +14,16 @@ DB_NAME = "cari.db"
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
+
+    # transaction_counter tablosu
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS transaction_counter (
+        date TEXT PRIMARY KEY,
+        counter INTEGER
+    )
+    """)
+
+    # records tablosu
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS records (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -21,14 +31,43 @@ def init_db():
         amount INTEGER,
         person TEXT,
         site TEXT,
-        date TEXT
+        date TEXT,
+        transaction_id INTEGER
     )
     """)
+
     conn.commit()
     conn.close()
 
-def get_db():
-    return sqlite3.connect(DB_NAME, timeout=10, check_same_thread=False)
+# Günlük işlem sayacını al
+def get_daily_counter(date: str):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT counter FROM transaction_counter WHERE date=?", (date,))
+    result = cursor.fetchone()
+    conn.close()
+    if result:
+        return result[0]
+    return 0  # Eğer o gün için işlem yapılmamışsa sıfır
+
+# Günlük sayaç artırma
+def increment_daily_counter(date: str):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT counter FROM transaction_counter WHERE date=?", (date,))
+    result = cursor.fetchone()
+
+    if result:
+        new_count = result[0] + 1
+        cursor.execute("UPDATE transaction_counter SET counter=? WHERE date=?", (new_count, date))
+    else:
+        new_count = 1
+        cursor.execute("INSERT INTO transaction_counter (date, counter) VALUES (?, ?)", (date, new_count))
+
+    conn.commit()
+    conn.close()
+    return new_count
 
 # 🔹 Mesaj böl
 def split_message(text, chunk_size=4000):
@@ -47,7 +86,7 @@ async def ekle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     code = context.args[0]
     try:
         amount = int(context.args[1])
-    except:
+    except ValueError:
         await update.message.reply_text("Tutar sayısal olmalı!")
         return
 
@@ -55,72 +94,35 @@ async def ekle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     site = context.args[-1]
     today = datetime.now().strftime("%Y-%m-%d")
 
-    conn = get_db()
-    cursor = conn.cursor()
+    # Günlük işlem sırasını al ve artır
+    transaction_id = increment_daily_counter(today)
 
-    cursor.execute(
-        "INSERT INTO records (code, amount, person, site, date) VALUES (?, ?, ?, ?, ?)",
-        (code, amount, person, site, today)
-    )
-    conn.commit()
-
-    cursor.execute(
-        "SELECT COUNT(*) FROM records WHERE code=? AND date=?",
-        (code, today)
-    )
-    count = cursor.fetchone()[0]
-
-    conn.close()
-
-    await update.message.reply_text(
-        f"✅ {code} +{amount} TL\n{person} | {site}\nBugünkü işlem: {count}"
-    )
-
-# 🔹 DUS
-async def dus(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) < 4:
-        await update.message.reply_text("Kullanım: /dus SKY1 200 Ahmet Yılmaz SiteA")
+    conn = sqlite3.connect(DB_NAME)
+    if conn is None:
+        await update.message.reply_text("Veritabanı bağlantı hatası, işlemi tekrar deneyin.")
         return
 
-    code = context.args[0]
     try:
-        amount = -abs(int(context.args[1]))
-    except:
-        await update.message.reply_text("Tutar sayısal olmalı!")
-        return
+        with conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO records (code, amount, person, site, date, transaction_id) VALUES (?, ?, ?, ?, ?, ?)",
+                (code, amount, person, site, today, transaction_id)
+            )
 
-    person = " ".join(context.args[2:-1])
-    site = context.args[-1]
-    today = datetime.now().strftime("%Y-%m-%d")
-
-    conn = get_db()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        "INSERT INTO records (code, amount, person, site, date) VALUES (?, ?, ?, ?, ?)",
-        (code, amount, person, site, today)
-    )
-    conn.commit()
-
-    cursor.execute(
-        "SELECT COUNT(*) FROM records WHERE code=? AND date=?",
-        (code, today)
-    )
-    count = cursor.fetchone()[0]
-
-    conn.close()
-
-    await update.message.reply_text(
-        f"✅ {code} -{abs(amount)} TL\n{person} | {site}\nBugünkü işlem: {count}"
-    )
+        await update.message.reply_text(
+            f"✅ {code} +{amount} TL\n{person} | {site}\nİşlem sırası: {transaction_id}"
+        )
+    except sqlite3.Error as e:
+        await update.message.reply_text("Veritabanı hatası oluştu, lütfen tekrar deneyin.")
 
 # 🔹 RAPOR
 async def rapor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     date = context.args[0] if context.args else datetime.now().strftime("%Y-%m-%d")
 
-    conn = get_db()
+    conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute("SELECT id, code, amount, person, site FROM records WHERE date=? ORDER BY id", (date,))
+    cursor.execute("SELECT id, code, amount, person, site, transaction_id FROM records WHERE date=? ORDER BY transaction_id", (date,))
     rows = cursor.fetchall()
     conn.close()
 
@@ -128,35 +130,10 @@ async def rapor(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Kayıt yok.")
         return
 
-    data = {}
-
-    for id_, code, amount, person, site in rows:
-        if code not in data:
-            data[code] = {"ekle": [], "dus": []}
-
-        if amount >= 0:
-            data[code]["ekle"].append((id_, person, site, amount))
-        else:
-            data[code]["dus"].append((id_, person, site, abs(amount)))
-
     text = f"📅 {date} - Taşeron Rapor\n\n"
 
-    for code, vals in data.items():
-        text += f"{code}\n"
-
-        if vals["ekle"]:
-            total = sum(x[3] for x in vals["ekle"])
-            text += f"  EKLE: {total} TL\n"
-            for id_, p, s, a in vals["ekle"]:
-                text += f"    {id_}. {p} ({s}) {a}\n"
-
-        if vals["dus"]:
-            total = sum(x[3] for x in vals["dus"])
-            text += f"  DÜŞ: {total} TL\n"
-            for id_, p, s, a in vals["dus"]:
-                text += f"    {id_}. {p} ({s}) {a}\n"
-
-        text += "\n"
+    for id_, code, amount, person, site, transaction_id in rows:
+        text += f"{transaction_id}. {code} - {amount} TL | {person} | {site}\n"
 
     for part in split_message(text):
         await update.message.reply_text(part)
@@ -165,7 +142,7 @@ async def rapor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def firma(update: Update, context: ContextTypes.DEFAULT_TYPE):
     date = context.args[0] if context.args else datetime.now().strftime("%Y-%m-%d")
 
-    conn = get_db()
+    conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("SELECT code, amount, person, site FROM records WHERE date=? ORDER BY site", (date,))
     rows = cursor.fetchall()
@@ -205,26 +182,6 @@ async def firma(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for part in split_message(text):
         await update.message.reply_text(part)
 
-# 🔓 GERİ AL (ARTIK HERKES)
-async def geri_al(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    conn = get_db()
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT id FROM records ORDER BY id DESC LIMIT 1")
-    row = cursor.fetchone()
-
-    if not row:
-        conn.close()
-        await update.message.reply_text("Kayıt yok.")
-        return
-
-    last_id = row[0]
-    cursor.execute("DELETE FROM records WHERE id=?", (last_id,))
-    conn.commit()
-    conn.close()
-
-    await update.message.reply_text(f"↩️ Son işlem silindi (ID: {last_id})")
-
 # 🔐 YARDIM (SADECE ADMIN)
 async def yardim(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if ADMIN_ID is None or update.effective_user.id != ADMIN_ID:
@@ -260,7 +217,7 @@ Botu başlatır
 
 # 🔹 BAKİYE
 async def bakiye(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    conn = get_db()
+    conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
     cursor.execute("SELECT code, SUM(amount) FROM records GROUP BY code")
@@ -290,10 +247,8 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("ekle", ekle))
-    app.add_handler(CommandHandler("dus", dus))
     app.add_handler(CommandHandler("rapor", rapor))
     app.add_handler(CommandHandler("firma", firma))
-    app.add_handler(CommandHandler("geri_al", geri_al))
     app.add_handler(CommandHandler("yardim", yardim))
     app.add_handler(CommandHandler("bakiye", bakiye))
 
