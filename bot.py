@@ -284,7 +284,7 @@ async def kasa(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📊 KASA DURUMU\n\n"
         f"💰 Toplam Yatırım : {para(yatirim)} TL\n"
         f"💸 TT İletilen    : {para(tt_toplam)} TL\n"
-        f"💼 Toplam Kom %3  : {para(komisyon)} TL\n"
+        f"💼 Toplam Kom %3,5  : {para(komisyon)} TL\n"
         "━━━━━━━━━━━━━━\n"
         f"💵 Kasa           : {para(kasa)} TL"
     )
