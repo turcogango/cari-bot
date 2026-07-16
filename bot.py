@@ -24,7 +24,7 @@ ADMIN_IDS = [
 
 DB_NAME = "kasa.db"
 
-KOMISYON_ORANI = 0.03
+KOMISYON_ORANI = 0.003
 
 
 
