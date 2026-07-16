@@ -278,7 +278,7 @@ async def kasa(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mesaj = (
         "📊 KASA DURUMU\n\n"
         f"💰 Toplam Yatırım : {para(yatirim)} TL\n"
-        f"💸 Toplam Çekim   : {para(cekim)} TL\n"
+        f"💸 TT iletilen   : {para(TT)} TL\n"
         f"💼 Toplam Kom %3  : {para(komisyon)} TL\n"
         "━━━━━━━━━━━━━━\n"
         f"💵 Kasa           : {para(toplam_kasa)} TL"
@@ -512,7 +512,7 @@ def main():
     )
 
     app.add_handler(
-        CommandHandler("cek", cek)
+        CommandHandler("TT", TT)
     )
 
     app.add_handler(
