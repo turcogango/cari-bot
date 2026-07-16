@@ -1,14 +1,14 @@
 import os
 import sqlite3
 from datetime import datetime
+
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
-    ContextTypes,
-    MessageHandler,
-    filters
+    ContextTypes
 )
+
 
 # =========================
 # AYARLAR
@@ -24,18 +24,21 @@ ADMIN_IDS = [
 
 DB_NAME = "kasa.db"
 
-COMMISSION_RATE = 0.03
+KOMISYON = 0.03
+
 
 
 # =========================
-# VERİTABANI
+# DATABASE
 # =========================
 
 def db():
     return sqlite3.connect(DB_NAME)
 
 
+
 def init_db():
+
     conn = db()
     cur = conn.cursor()
 
@@ -57,12 +60,15 @@ def init_db():
 # YARDIMCI
 # =========================
 
-def format_money(number):
-    return f"{number:,.0f}".replace(",", ".")
+def admin(user_id):
 
-
-def is_admin(user_id):
     return user_id in ADMIN_IDS
+
+
+
+def para(x):
+
+    return f"{x:,.0f}".replace(",", ".")
 
 
 
@@ -73,34 +79,31 @@ def is_admin(user_id):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
-        "✅ Kasa botu hazır.\n\n"
-        "Yatırım için:\n"
-        "+100000\n\n"
-        "Çekim için:\n"
-        "-50000\n\n"
+        "✅ Kasa bot aktif.\n\n"
         "/help yazabilirsiniz."
     )
 
 
 
 # =========================
-# YARDIM
+# HELP
 # =========================
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = """
-📖 KOMUTLAR
+📌 KOMUTLAR
 
-+100000
+/yat 100000
 ➜ Yatırım ekler
 
--100000
+
+/çek 50000
 ➜ Çekim ekler
 
 
 /kasa
-➜ Güncel kasa durumu
+➜ Kasa durumunu gösterir
 
 
 /rapor
@@ -111,7 +114,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ➜ Yatırım siler
 
 
-/sil -100000
+/sil -50000
 ➜ Çekim siler
 
 
@@ -120,7 +123,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 /help
-➜ Komut listesi
+➜ Yardım
 """
 
     await update.message.reply_text(text)
@@ -128,33 +131,36 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =========================
-# PARA GİRİŞİ
+# YATIRIM
 # =========================
 
-async def money_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def yat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    if not is_admin(update.effective_user.id):
+    if not admin(update.effective_user.id):
         return
 
-    text = update.message.text.strip()
 
-    if not text.startswith(("+", "-")):
+    if not context.args:
+
+        await update.message.reply_text(
+            "Kullanım:\n/yat 100000"
+        )
+
         return
+
 
     try:
-        amount = int(text)
 
-    except ValueError:
+        miktar = int(context.args[0])
+
+    except:
+
+        await update.message.reply_text(
+            "Tutar sayı olmalı."
+        )
+
         return
 
-
-    today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-
-    if amount > 0:
-        tip = "yatirim"
-    else:
-        tip = "cekim"
 
 
     conn = db()
@@ -168,9 +174,9 @@ async def money_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         VALUES (?,?,?)
         """,
         (
-            abs(amount),
-            tip,
-            today
+            miktar,
+            "yatirim",
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         )
     )
 
@@ -179,20 +185,78 @@ async def money_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
 
 
-    if amount > 0:
+
+    await update.message.reply_text(
+        f"✅ Yatırım eklendi\n\n"
+        f"💰 +{para(miktar)} TL"
+    )
+
+
+
+# =========================
+# ÇEKİM
+# =========================
+
+async def cek(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not admin(update.effective_user.id):
+        return
+
+
+    if not context.args:
 
         await update.message.reply_text(
-            "✅ Yatırım eklendi\n\n"
-            f"💰 +{format_money(amount)} TL"
+            "Kullanım:\n/çek 50000"
         )
 
-    else:
+        return
+
+
+    try:
+
+        miktar = int(context.args[0])
+
+    except:
 
         await update.message.reply_text(
-            "✅ Çekim eklendi\n\n"
-            f"💸 -{format_money(abs(amount))} TL"
+            "Tutar sayı olmalı."
         )
-        # =========================
+
+        return
+
+
+
+    conn = db()
+    cur = conn.cursor()
+
+
+    cur.execute(
+        """
+        INSERT INTO transactions
+        (amount,type,date)
+        VALUES (?,?,?)
+        """,
+        (
+            miktar,
+            "cekim",
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        )
+    )
+
+
+    conn.commit()
+    conn.close()
+
+
+
+    await update.message.reply_text(
+        f"✅ Çekim eklendi\n\n"
+        f"💸 -{para(miktar)} TL"
+    )
+
+
+
+# =========================
 # KASA
 # =========================
 
@@ -201,33 +265,39 @@ async def kasa(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = db()
     cur = conn.cursor()
 
+
     cur.execute(
         "SELECT SUM(amount) FROM transactions WHERE type='yatirim'"
     )
+
     yatirim = cur.fetchone()[0] or 0
+
 
 
     cur.execute(
         "SELECT SUM(amount) FROM transactions WHERE type='cekim'"
     )
+
     cekim = cur.fetchone()[0] or 0
 
 
     conn.close()
 
 
-    komisyon = yatirim * COMMISSION_RATE
 
-    kasa = yatirim - cekim - komisyon
+    komisyon = yatirim * KOMISYON
+
+    toplam = yatirim - cekim - komisyon
+
 
 
     text = (
-        "📊 KASA DURUMU\n\n"
-        f"💰 Toplam Yatırım : {format_money(yatirim)} TL\n"
-        f"💸 Toplam Çekim   : {format_money(cekim)} TL\n"
-        f"💼 Toplam Kom %3  : {format_money(komisyon)} TL\n"
+        "📊 KASA\n\n"
+        f"💰 Toplam Yatırım : {para(yatirim)} TL\n"
+        f"💸 Toplam Çekim   : {para(cekim)} TL\n"
+        f"💼 Toplam Kom %3  : {para(komisyon)} TL\n"
         "━━━━━━━━━━━━━━\n"
-        f"💵 Kasa           : {format_money(kasa)} TL"
+        f"💵 Kasa           : {para(toplam)} TL"
     )
 
 
@@ -247,7 +317,7 @@ async def rapor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     cur.execute(
         """
-        SELECT id, amount, type, date
+        SELECT id,amount,type,date
         FROM transactions
         ORDER BY id DESC
         """
@@ -259,33 +329,37 @@ async def rapor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
 
 
+
     if not rows:
+
         await update.message.reply_text(
             "Kayıt yok."
         )
+
         return
 
 
-    text = "📋 İŞLEM RAPORU\n\n"
+
+    text = "📋 RAPOR\n\n"
 
 
-    for id_, amount, tip, date in rows:
+    for i, amount, tip, date in rows:
+
 
         if tip == "yatirim":
 
             text += (
-                f"#{id_} "
-                f"➕ {format_money(amount)} TL "
-                f"{date}\n"
+                f"#{i} ➕ {para(amount)} TL\n"
+                f"{date}\n\n"
             )
 
         else:
 
             text += (
-                f"#{id_} "
-                f"➖ {format_money(amount)} TL "
-                f"{date}\n"
+                f"#{i} ➖ {para(amount)} TL\n"
+                f"{date}\n\n"
             )
+
 
 
     await update.message.reply_text(text)
@@ -298,35 +372,42 @@ async def rapor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def sil(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    if not is_admin(update.effective_user.id):
+    if not admin(update.effective_user.id):
         return
 
 
     if not context.args:
+
         await update.message.reply_text(
-            "Kullanım:\n/sil +100000\n/sil -50000"
+            "/sil +100000\n/sil -50000"
         )
-        return
 
-
-    try:
-        amount = int(context.args[0])
-
-    except ValueError:
-        await update.message.reply_text(
-            "Geçersiz tutar."
-        )
         return
 
 
 
-    if amount > 0:
+    deger = context.args[0]
+
+
+    if deger.startswith("+"):
+
         tip = "yatirim"
-        miktar = amount
+        miktar = int(deger[1:])
+
+
+    elif deger.startswith("-"):
+
+        tip = "cekim"
+        miktar = int(deger[1:])
+
 
     else:
-        tip = "cekim"
-        miktar = abs(amount)
+
+        await update.message.reply_text(
+            "Format yanlış."
+        )
+
+        return
 
 
 
@@ -348,34 +429,32 @@ async def sil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-    row = cur.fetchone()
+    kayit = cur.fetchone()
 
 
-    if not row:
 
-        conn.close()
+    if kayit:
 
-        await update.message.reply_text(
-            "Bu tutarda kayıt bulunamadı."
+        cur.execute(
+            "DELETE FROM transactions WHERE id=?",
+            (kayit[0],)
         )
-        return
+
+        conn.commit()
+
+        mesaj = "🗑 Silindi."
+
+
+    else:
+
+        mesaj = "Kayıt bulunamadı."
 
 
 
-    cur.execute(
-        "DELETE FROM transactions WHERE id=?",
-        (row[0],)
-    )
-
-
-    conn.commit()
     conn.close()
 
 
-    await update.message.reply_text(
-        f"🗑 Silindi\n\n"
-        f"{format_money(miktar)} TL"
-    )
+    await update.message.reply_text(mesaj)
 
 
 
@@ -385,7 +464,7 @@ async def sil(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    if not is_admin(update.effective_user.id):
+    if not admin(update.effective_user.id):
         return
 
 
@@ -413,7 +492,9 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
 
     if not TOKEN:
-        print("BOT_TOKEN bulunamadı")
+
+        print("BOT_TOKEN yok")
+
         return
 
 
@@ -423,42 +504,20 @@ def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
 
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help))
 
-    app.add_handler(
-        CommandHandler("start", start)
-    )
+    app.add_handler(CommandHandler("yat", yat))
+    app.add_handler(CommandHandler("çek", cek))
 
-    app.add_handler(
-        CommandHandler("help", help_command)
-    )
+    app.add_handler(CommandHandler("kasa", kasa))
+    app.add_handler(CommandHandler("rapor", rapor))
 
-    app.add_handler(
-        CommandHandler("kasa", kasa)
-    )
-
-    app.add_handler(
-        CommandHandler("rapor", rapor)
-    )
-
-    app.add_handler(
-        CommandHandler("sil", sil)
-    )
-
-    app.add_handler(
-        CommandHandler("reset", reset)
-    )
+    app.add_handler(CommandHandler("sil", sil))
+    app.add_handler(CommandHandler("reset", reset))
 
 
-    app.add_handler(
-        MessageHandler(
-            filters.TEXT & ~filters.COMMAND,
-            money_input
-        )
-    )
-
-
-
-    print("Kasa bot çalışıyor...")
+    print("Bot çalışıyor...")
 
 
     app.run_polling()
